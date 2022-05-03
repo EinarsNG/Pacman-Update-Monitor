@@ -1,4 +1,5 @@
 from datetime import datetime
+from argparse import ArgumentParser
 
 import platform
 import re
@@ -6,8 +7,11 @@ import os
 import requests
 import tarfile
 import sys
+import subprocess
+import shutil
 
-from pprint import pprint
+parser = ArgumentParser()
+parser.add_argument("--nowarn", action="store_true", help="Disable package not found warning")
 
 SCRIPT_PATH = os.path.dirname(sys.argv[0])
 
@@ -18,6 +22,17 @@ def progress_bar(current: int | float, max_value: int | float):
     done_symbols = "=" * int(current_progress)
     left_symbols = "-" * left_progress
     print(f"\r[{done_symbols}{left_symbols}] {current_progress*100/BAR_WIDTH:.2f}%", end="")
+
+def get_current_packages() -> dict:
+    packages = {}
+    process = subprocess.Popen([shutil.which("pacman"), "-Q"], stdout=subprocess.PIPE)
+    lines = process.stdout.readlines()
+    for line in lines:
+        line = line.decode().strip().split(" ")
+        name = line[0]
+        version = line[1]
+        packages[name] = version
+    return packages
 
 URL_REGEX = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&$\/\/=]*)"
 def main() -> None:
@@ -71,9 +86,9 @@ def main() -> None:
                     f.write(data)
                 print()
 
+    new_packages = {}
     for repo_file in repo_files:
         try:
-            packages: list[tuple[str, str]] = []
             with tarfile.open(os.path.join(SCRIPT_PATH, repo_file), "r") as tar:
                 for member in tar:
                     if member.isfile() and re.match(".*desc$", member.name):
@@ -89,12 +104,25 @@ def main() -> None:
                                 version = content[i+1].decode().strip()
                         if name == "" or version == "":
                             continue
-                        packages.append((name, version))
-            pprint(packages)
+                        new_packages[name] = version
         except FileNotFoundError:
             print(f"Could not find {repo_file}. Make sure it is in the script directory.")
         except tarfile.ReadError:
             print(f"Could not open malformed {repo_file}.")
 
+    current_packages = get_current_packages()
+    new_available = 0
+    for package, version in current_packages.items():
+        if package not in new_packages:
+            if not args.nowarn:
+                print(f"Warning {package} not found")
+            continue
+        if new_packages[package] != version:
+            new_available += 1
+            print(package, version, f"New version available ({new_packages[package]})")
+    if new_available == 0:
+        print("No new packages available")
+
 if __name__ == "__main__":
+    args = parser.parse_args()
     main()
