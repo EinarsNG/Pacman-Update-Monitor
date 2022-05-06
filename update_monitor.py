@@ -174,7 +174,7 @@ def construct_html(text: str, new_available: list[tuple[str, str, str]]) -> str:
             <td>{entry[2]}</td>
         </tr>
         """
-    html_body += "</body></table></html>"
+    html_body += "</table></body></html>"
     return html_body
 
 def main() -> None:
