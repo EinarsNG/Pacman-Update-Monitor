@@ -1,0 +1,8 @@
+{
+  "title_format": "Update report for %Y-%m-%d",
+  "sender_email": "",
+  "sender_password": "",
+  "recipient": "",
+  "email_port": 587,
+  "auth_mechanism": "starttls"
+}
