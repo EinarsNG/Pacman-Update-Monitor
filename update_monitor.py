@@ -5,7 +5,7 @@ from smtplib import SMTP
 import platform
 import re
 import os
-import requests
+import urllib.request
 import tarfile
 import sys
 import subprocess
@@ -81,12 +81,11 @@ def update_repos() -> list[str]:
 
     for repo_file, url in zip(repo_files_to_download, urls_to_query):
         print(f"Downloading {repo_file}")
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            total_size = r.headers.get("content-length", 0)
+        with urllib.request.urlopen(url) as r:
+            total_size = r.length
             downloaded_size = 0
             with open(os.path.join(SCRIPT_DIR, repo_file), "wb") as f:
-                for data in r.iter_content(32 * 1024):
+                while len(data := r.read(32 * 1024)) > 0:
                     downloaded_size += len(data)
                     progress_bar(downloaded_size, int(total_size))
                     f.write(data)
