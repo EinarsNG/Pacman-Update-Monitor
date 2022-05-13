@@ -1,5 +1,5 @@
 # Pacman-Update-Monitor
-Enables Pacman update monitoring via standalone script with only one external dependecy (requests)
+Enables Pacman update monitoring via standalone script with no external dependencies.
 ## How to set up
 * Modify email.json and specify all needed email settings
 * (Optional) Modify repos.txt to add extra repositories other than defaults
