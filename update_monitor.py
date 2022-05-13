@@ -1,6 +1,7 @@
 from datetime import datetime
 from email.message import EmailMessage
 from smtplib import SMTP
+from argparse import ArgumentParser
 
 import platform
 import re
@@ -14,8 +15,20 @@ import json
 
 SCRIPT_DIR = os.path.dirname(sys.argv[0])
 URL_REGEX = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&$\/\/=]*)"
+
+# Some packages that use something other than SemVer will most likely not be detected, so it will add those to report anyways
+# TODO: Add support for different types of versioning
+VERSION_REGEX = r"^(\d+).(\d+).(\d+).*"
+
 DEFAULT_REPOS = ["core", "extra", "community"]
 BAR_WIDTH = 50
+
+parser = ArgumentParser()
+group = parser.add_mutually_exclusive_group()
+group.add_argument("--major", action="store_true", help="Only new major releases are listed in the report")
+group.add_argument("--minor", action="store_true", help="Only new minor and major releases are listed in the report")
+group.add_argument("--micro", action="store_true", help="Only micro, minor and major releases are listen in the report")
+group.add_argument("--all", action="store_true", help="Every single version change is listen in the report (default)")
 
 def progress_bar(current: int | float, max_value: int | float):
     current_progress = current / max_value * BAR_WIDTH
@@ -124,9 +137,25 @@ def get_new_available(current_packages: dict, new_packages: dict) -> list[tuple[
     new_available: list[tuple[str, str, str]] = []
     for curPackage, curVersion in current_packages.items():
         for newPackage, newVersion in new_packages.items():
-            if (curPackage == newPackage
-                    and curVersion != newVersion):
+            if curPackage != newPackage:
+                continue
+            if curVersion == newVersion:
+                continue
+            if not args.major and not args.minor and not args.micro:
                 new_available.append((curPackage, curVersion, newVersion))
+                continue
+            old = re.search(VERSION_REGEX, curVersion)
+            new = re.search(VERSION_REGEX, newVersion)
+            if old and new:
+                if args.major and old[1] != new[1]:
+                    new_available.append((curPackage, curVersion, newVersion))
+                elif args.minor and (old[2] != new[2] or old[1] != new[1]):
+                    new_available.append((curPackage, curVersion, newVersion))
+                elif args.micro and (old[3] != new[3] or old[2] != new[2] or old[1] != old[1]):
+                    new_available.append((curPackage, curVersion, newVersion))
+            else:
+                new_available.append((curPackage, curVersion, newVersion))
+
     return new_available
 
 def send_notification(html_body: str) -> None:
@@ -194,4 +223,5 @@ def main() -> None:
     send_notification(html_body)
 
 if __name__ == "__main__":
+    args = parser.parse_args()
     main()
