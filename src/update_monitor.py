@@ -2,6 +2,7 @@ from datetime import datetime
 from email.message import EmailMessage
 from smtplib import SMTP
 from argparse import ArgumentParser
+from enum import Enum, auto
 
 import platform
 import re
@@ -29,6 +30,12 @@ group.add_argument("--major", action="store_true", help="Only new major releases
 group.add_argument("--minor", action="store_true", help="Only new minor and major releases are listed in the report")
 group.add_argument("--micro", action="store_true", help="Only micro, minor and major releases are listen in the report")
 group.add_argument("--all", action="store_true", help="Every single version change is listen in the report (default)")
+
+class VersionFilters(Enum):
+    Major = auto()
+    Minor = auto()
+    Micro = auto()
+    All = auto()
 
 def progress_bar(current: int | float, max_value: int | float):
     current_progress = current / max_value * BAR_WIDTH
@@ -133,7 +140,7 @@ def get_repo_packages(repo_files: list[str]) -> dict:
 
     return new_packages
 
-def get_new_available(current_packages: dict, new_packages: dict) -> list[tuple[str, str, str]]:
+def get_new_available(current_packages: dict, new_packages: dict, version: VersionFilters) -> list[tuple[str, str, str]]:
     new_available: list[tuple[str, str, str]] = []
     for curPackage, curVersion in current_packages.items():
         for newPackage, newVersion in new_packages.items():
@@ -141,17 +148,17 @@ def get_new_available(current_packages: dict, new_packages: dict) -> list[tuple[
                 continue
             if curVersion == newVersion:
                 continue
-            if not args.major and not args.minor and not args.micro:
+            if version == VersionFilters.All:
                 new_available.append((curPackage, curVersion, newVersion))
                 continue
             old = re.search(VERSION_REGEX, curVersion)
             new = re.search(VERSION_REGEX, newVersion)
             if old and new:
-                if args.major and old[1] != new[1]:
+                if version == VersionFilters.Major and old[1] != new[1]:
                     new_available.append((curPackage, curVersion, newVersion))
-                elif args.minor and (old[2] != new[2] or old[1] != new[1]):
+                elif version == VersionFilters.Minor and (old[2] != new[2] or old[1] != new[1]):
                     new_available.append((curPackage, curVersion, newVersion))
-                elif args.micro and (old[3] != new[3] or old[2] != new[2] or old[1] != old[1]):
+                elif version == VersionFilters.Micro and (old[3] != new[3] or old[2] != new[2] or old[1] != new[1]):
                     new_available.append((curPackage, curVersion, newVersion))
             else:
                 new_available.append((curPackage, curVersion, newVersion))
@@ -209,7 +216,7 @@ def main() -> None:
     repo_files = update_repos()
     new_packages = get_repo_packages(repo_files) 
     current_packages = get_current_packages()
-    new_available = get_new_available(current_packages, new_packages)
+    new_available = get_new_available(current_packages, new_packages, version)
     msg_text = ""
     if not new_available:
         msg_text = "No new packages available"
@@ -224,4 +231,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    version = VersionFilters.All
+    if args.major:
+        version = VersionFilters.Major
+    elif args.minor:
+        version = VersionFilters.Minor
+    elif args.micro:
+        version = VersionFilters.Micro
     main()
