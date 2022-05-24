@@ -135,8 +135,10 @@ def get_repo_packages(repo_files: list[str]) -> dict:
                         new_packages[name] = version
         except FileNotFoundError:
             print(f"Could not find {repo_file}. Make sure it is in the script directory.")
+            raise
         except tarfile.ReadError:
             print(f"Could not open malformed {repo_file}.")
+            raise
 
     return new_packages
 
@@ -189,26 +191,26 @@ def send_notification(html_body: str) -> None:
 def construct_html(text: str, new_available: list[tuple[str, str, str]]) -> str:
     if not new_available:
         return f"<html><body><h3>{text}</h3></body></html>"
-    html_body = f"""
-    <html>
-    <style>table,th,td{{border-collapse: collapse;border: 1px solid black;}}</style>
-    <body>
-    <h3>{text}</h3>
-    <table>
-    <tr>
-        <th>Package name</th>
-        <th>Current version</th>
-        <th>Newest version</th>
-    </tr>
-    """
+    html_body = (
+        "<html>"
+        "<style>table,th,td{{border-collapse: collapse;border: 1px solid black;}}</style>"
+        "<body>"
+        f"<h3>{text}</h3>"
+        "<table>"
+        "<tr>"
+            "<th>Package name</th>"
+            "<th>Current version</th>"
+            "<th>Newest version</th>"
+        "</tr>"
+    )
     for entry in new_available:
-        html_body += f"""
-        <tr>
-            <td>{entry[0]}</td>
-            <td>{entry[1]}</td>
-            <td>{entry[2]}</td>
-        </tr>
-        """
+        html_body += (
+            "<tr>"
+                f"<td>{entry[0]}</td>"
+                f"<td>{entry[1]}</td>"
+                f"<td>{entry[2]}</td>"
+            "</tr>"
+        )
     html_body += "</table></body></html>"
     return html_body
 
