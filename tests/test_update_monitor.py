@@ -1,4 +1,5 @@
 from pytest import MonkeyPatch
+from email.message import EmailMessage
 import pytest
 
 from src.update_monitor import (
@@ -7,6 +8,7 @@ from src.update_monitor import (
     get_repo_packages,
     construct_html,
     VersionFilters,
+    send_notification,
 )
 
 import json
@@ -113,3 +115,34 @@ def test_construct_html_no_new():
     actual = construct_html("title", [])
     expected = "<html><body><h3>title</h3></body></html>"
     assert actual == expected
+
+def test_send_notification(monkeypatch: MonkeyPatch):
+    monkeypatch.setattr("src.update_monitor.SCRIPT_DIR", "tests/files")
+    class DummySMTP:
+        def __init__(self, *args, **kwargs):
+            self.methodsCalled = 0
+            assert kwargs["host"] == "example.com"
+            assert kwargs["port"] == 587
+
+        def starttls(self):
+            self.methodsCalled += 1
+
+        def login(self, username: str, password: str):
+            self.methodsCalled += 1
+            assert username == "abcd"
+            assert password == "password"
+
+        def send_message(self, msg: EmailMessage):
+            self.methodsCalled += 1
+            assert msg["Subject"] == "Update report"
+            assert msg["From"] == "abcd@example.com"
+            assert msg["To"] == "efgh@domain.com"
+            assert msg.get_params()[0][0] == "text/html"
+            assert msg.get_payload() == "<h3>Test</h3>"
+            assert self.methodsCalled == 3
+
+    monkeypatch.setattr("smtplib.SMTP.__init__", DummySMTP.__init__)
+    monkeypatch.setattr("smtplib.SMTP.starttls", DummySMTP.starttls)
+    monkeypatch.setattr("smtplib.SMTP.login", DummySMTP.login)
+    monkeypatch.setattr("smtplib.SMTP.send_message", DummySMTP.send_message)
+    send_notification("<h3>Test</h3>")
