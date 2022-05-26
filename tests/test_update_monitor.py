@@ -1,22 +1,27 @@
 from pytest import MonkeyPatch
 from email.message import EmailMessage
-import pytest
 
 from src.update_monitor import (
     get_current_packages,
     get_new_available,
+    get_repo_list,
     get_repo_packages,
     construct_html,
+    get_mirror,
+    get_urls,
     VersionFilters,
+    NoUrlFound,
     send_notification,
 )
 
 import json
 import tarfile
+import pytest
+import datetime
 
 def test_get_packages(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("shutil.which", lambda _: "123")
-    def create_process_mock(*args, **kwargs):
+    def create_process_mock(*_, **__):
         class Stdout:
             def readlines(self):
                 return [b"linux 1.0.0", b"python3 3.10.4"]
@@ -119,7 +124,7 @@ def test_construct_html_no_new():
 def test_send_notification(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("src.update_monitor.SCRIPT_DIR", "tests/files")
     class DummySMTP:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_, **kwargs):
             self.methodsCalled = 0
             assert kwargs["host"] == "example.com"
             assert kwargs["port"] == 587
@@ -146,3 +151,101 @@ def test_send_notification(monkeypatch: MonkeyPatch):
     monkeypatch.setattr("smtplib.SMTP.login", DummySMTP.login)
     monkeypatch.setattr("smtplib.SMTP.send_message", DummySMTP.send_message)
     send_notification("<h3>Test</h3>")
+
+@pytest.mark.parametrize(
+    "repofile,expected",
+    [
+        [
+            "tests/files",
+            ["a","b","c"]
+        ],
+        [
+            "path/that/doesnt/exist",
+            ["core", "extra", "community"]
+        ]
+    ],
+    ids=lambda x: x
+)
+def test_get_repo_list(repofile, expected, monkeypatch: MonkeyPatch):
+    monkeypatch.setattr("src.update_monitor.SCRIPT_DIR", repofile)
+    actual = get_repo_list()
+    assert actual == expected
+
+def test_get_mirror_pass(monkeypatch: MonkeyPatch):
+    class FileDummy:
+        def __init__(self, path: str):
+            assert path == "/etc/pacman.d/mirrorlist"
+
+        def __iter__(self):
+            self.lines = [
+                    "#",
+                    "#https://ignore.me.com/a/b/c",
+                    "https://pick.me.com/c/d/e"
+            ]
+            return self
+
+        def __next__(self):
+            if not self.lines:
+                raise StopIteration
+            return self.lines.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr("builtins.open", FileDummy)
+    actual = get_mirror()
+    expected = "https://pick.me.com/c/d/e"
+    assert actual == expected
+
+def test_get_mirror_fail(monkeypatch: MonkeyPatch):
+    class FileDummy:
+        def __enter__(self):
+            return self
+        
+        def __exit__(self, *_):
+            pass
+
+        def readline(self):
+            return "abcd"
+    def raise_not_found(path):
+        if path == "/etc/pacman.d/mirrorlist":
+            raise FileNotFoundError()
+        return FileDummy()
+    monkeypatch.setattr("builtins.open", raise_not_found)
+    with pytest.raises(NoUrlFound):
+        get_mirror()
+
+def test_get_urls():
+    mirror = "https://example.com/$arch/$repo"
+    repos = ["a", "b"]
+    arch = "x86_64"
+    expected = [
+        "https://example.com/x86_64/a/a.db",
+        "https://example.com/x86_64/b/b.db"
+    ]
+    actual = get_urls(mirror, repos, arch)
+    assert actual == expected
+
+def test_get_urls_fresh(monkeypatch: MonkeyPatch):
+    class DatetimeDummy:
+        @staticmethod
+        def now():
+            class NowDummy:
+                def timestamp(self):
+                    return 0
+            return NowDummy()
+
+    monkeypatch.setattr("os.path.isfile", lambda _: True)
+    monkeypatch.setattr("os.path.getmtime", lambda _: 0)
+    monkeypatch.setattr("src.update_monitor.datetime", DatetimeDummy)
+    mirror = "abcd"
+    repos = ["a"]
+    arch = "aaa"
+    actual = get_urls(mirror, repos, arch)
+    assert actual == []
+
+def test_download_repos():
+    pass
