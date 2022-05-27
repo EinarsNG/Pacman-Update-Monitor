@@ -1,0 +1,8 @@
+{
+  "title_format": "Update report",
+  "sender_email": "abcd@example.com",
+  "sender_password": "password",
+  "recipient": "efgh@domain.com",
+  "email_port": 587,
+  "auth_mechanism": "starttls"
+}

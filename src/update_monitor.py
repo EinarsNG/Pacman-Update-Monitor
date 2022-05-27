@@ -2,6 +2,7 @@ from datetime import datetime
 from email.message import EmailMessage
 from smtplib import SMTP
 from argparse import ArgumentParser
+from enum import Enum, auto
 
 import platform
 import re
@@ -30,7 +31,16 @@ group.add_argument("--minor", action="store_true", help="Only new minor and majo
 group.add_argument("--micro", action="store_true", help="Only micro, minor and major releases are listen in the report")
 group.add_argument("--all", action="store_true", help="Every single version change is listen in the report (default)")
 
-def progress_bar(current: int | float, max_value: int | float):
+class VersionFilters(Enum):
+    Major = auto()
+    Minor = auto()
+    Micro = auto()
+    All = auto()
+
+class NoUrlFound(Exception):
+    pass
+
+def progress_bar(current: int | float, max_value: int | float) -> None:
     current_progress = current / max_value * BAR_WIDTH
     left_progress = BAR_WIDTH - int(current_progress)
     done_symbols = "=" * int(current_progress)
@@ -51,14 +61,15 @@ def get_current_packages() -> dict:
         packages[name] = version
     return packages
 
-def update_repos() -> list[str]:
-    arch: str = platform.machine()
+def get_repo_list() -> list[str]:
     try:
         with open(os.path.join(SCRIPT_DIR, "repos.txt")) as f:
             repos = [line.strip() for line in f.readlines()]
     except FileNotFoundError:
         repos = DEFAULT_REPOS
+    return repos
 
+def get_mirror() -> str:
     mirror: str = ""
     try:
         with open("/etc/pacman.d/mirrorlist") as f:
@@ -72,27 +83,30 @@ def update_repos() -> list[str]:
     except FileNotFoundError:
         with open(os.path.join(SCRIPT_DIR, "mirror.txt")) as f:
             mirror = f.readline().strip()
+    if not re.search(URL_REGEX, mirror):
+        raise NoUrlFound()
+    return mirror
 
+def get_urls(mirror: str, repos: list[str], arch: str) -> list[str]:
     urls_to_query: list[str] = []
-    repo_files_to_download: list[str] = []
-    repo_files: list[str] = []
-    time_now = int(datetime.now().timestamp())
     for repo in repos:
         repo_file = f"{repo}.db"
-        repo_files.append(repo_file)
         if os.path.isfile(repo_file):
             last_modified = int(os.path.getmtime(repo_file))
-            time_since_modifed = time_now - last_modified
+            time_now = int(datetime.now().timestamp())
+            time_since_modified = time_now - last_modified
             # lets not download more than once an hour
-            if time_since_modifed < 3600:
+            if time_since_modified < 3600:
                 print(f"{repo_file} is up to date")
                 continue
         tmp: str = mirror.replace("$repo", repo).replace("$arch", arch)
         tmp += f"/{repo_file}"
-        repo_files_to_download.append(repo_file)
         urls_to_query.append(tmp)
+    return urls_to_query
 
-    for repo_file, url in zip(repo_files_to_download, urls_to_query):
+def download_repos(urls_to_query: list[str]) -> None:
+    for url in urls_to_query:
+        repo_file = url.split("/")[-1]
         print(f"Downloading {repo_file}")
         with urllib.request.urlopen(url) as r:
             total_size = r.length
@@ -104,8 +118,14 @@ def update_repos() -> list[str]:
                     f.write(data)
                 print()
 
-    return repo_files
-
+def update_repos() -> list[str]:
+    arch: str = platform.machine()
+    repos = get_repo_list()
+    mirror = get_mirror() 
+    urls_to_query = get_urls(mirror, repos, arch)
+    download_repos(urls_to_query)
+    return [f"{repo}.db" for repo in repos]
+    
 def get_repo_packages(repo_files: list[str]) -> dict:
     new_packages: dict = {}
     for repo_file in repo_files:
@@ -128,12 +148,14 @@ def get_repo_packages(repo_files: list[str]) -> dict:
                         new_packages[name] = version
         except FileNotFoundError:
             print(f"Could not find {repo_file}. Make sure it is in the script directory.")
+            raise
         except tarfile.ReadError:
             print(f"Could not open malformed {repo_file}.")
+            raise
 
     return new_packages
 
-def get_new_available(current_packages: dict, new_packages: dict) -> list[tuple[str, str, str]]:
+def get_new_available(current_packages: dict, new_packages: dict, version: VersionFilters) -> list[tuple[str, str, str]]:
     new_available: list[tuple[str, str, str]] = []
     for curPackage, curVersion in current_packages.items():
         for newPackage, newVersion in new_packages.items():
@@ -141,17 +163,17 @@ def get_new_available(current_packages: dict, new_packages: dict) -> list[tuple[
                 continue
             if curVersion == newVersion:
                 continue
-            if not args.major and not args.minor and not args.micro:
+            if version == VersionFilters.All:
                 new_available.append((curPackage, curVersion, newVersion))
                 continue
             old = re.search(VERSION_REGEX, curVersion)
             new = re.search(VERSION_REGEX, newVersion)
             if old and new:
-                if args.major and old[1] != new[1]:
+                if version == VersionFilters.Major and old[1] != new[1]:
                     new_available.append((curPackage, curVersion, newVersion))
-                elif args.minor and (old[2] != new[2] or old[1] != new[1]):
+                elif version == VersionFilters.Minor and (old[2] != new[2] or old[1] != new[1]):
                     new_available.append((curPackage, curVersion, newVersion))
-                elif args.micro and (old[3] != new[3] or old[2] != new[2] or old[1] != old[1]):
+                elif version == VersionFilters.Micro and (old[3] != new[3] or old[2] != new[2] or old[1] != new[1]):
                     new_available.append((curPackage, curVersion, newVersion))
             else:
                 new_available.append((curPackage, curVersion, newVersion))
@@ -182,26 +204,26 @@ def send_notification(html_body: str) -> None:
 def construct_html(text: str, new_available: list[tuple[str, str, str]]) -> str:
     if not new_available:
         return f"<html><body><h3>{text}</h3></body></html>"
-    html_body = f"""
-    <html>
-    <style>table,th,td{{border-collapse: collapse;border: 1px solid black;}}</style>
-    <body>
-    <h3>{text}</h3>
-    <table>
-    <tr>
-        <th>Package name</th>
-        <th>Current version</th>
-        <th>Newest version</th>
-    </tr>
-    """
+    html_body = (
+        "<html>"
+        "<style>table,th,td{border-collapse: collapse;border: 1px solid black;}</style>"
+        "<body>"
+        f"<h3>{text}</h3>"
+        "<table>"
+        "<tr>"
+            "<th>Package name</th>"
+            "<th>Current version</th>"
+            "<th>Newest version</th>"
+        "</tr>"
+    )
     for entry in new_available:
-        html_body += f"""
-        <tr>
-            <td>{entry[0]}</td>
-            <td>{entry[1]}</td>
-            <td>{entry[2]}</td>
-        </tr>
-        """
+        html_body += (
+            "<tr>"
+                f"<td>{entry[0]}</td>"
+                f"<td>{entry[1]}</td>"
+                f"<td>{entry[2]}</td>"
+            "</tr>"
+        )
     html_body += "</table></body></html>"
     return html_body
 
@@ -209,7 +231,7 @@ def main() -> None:
     repo_files = update_repos()
     new_packages = get_repo_packages(repo_files) 
     current_packages = get_current_packages()
-    new_available = get_new_available(current_packages, new_packages)
+    new_available = get_new_available(current_packages, new_packages, version)
     msg_text = ""
     if not new_available:
         msg_text = "No new packages available"
@@ -224,4 +246,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    version = VersionFilters.All
+    if args.major:
+        version = VersionFilters.Major
+    elif args.minor:
+        version = VersionFilters.Minor
+    elif args.micro:
+        version = VersionFilters.Micro
     main()
