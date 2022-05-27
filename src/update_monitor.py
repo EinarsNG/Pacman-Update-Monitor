@@ -104,8 +104,7 @@ def get_urls(mirror: str, repos: list[str], arch: str) -> list[str]:
         urls_to_query.append(tmp)
     return urls_to_query
 
-def download_repos(urls_to_query: list[str]) -> list[str]:
-    repo_files: list[str] = []
+def download_repos(urls_to_query: list[str]) -> None:
     for url in urls_to_query:
         repo_file = url.split("/")[-1]
         print(f"Downloading {repo_file}")
@@ -118,14 +117,14 @@ def download_repos(urls_to_query: list[str]) -> list[str]:
                     progress_bar(downloaded_size, int(total_size))
                     f.write(data)
                 print()
-    return repo_files
 
 def update_repos() -> list[str]:
     arch: str = platform.machine()
     repos = get_repo_list()
     mirror = get_mirror() 
-    urls_to_query = get_urls(mirror, repos, arch) 
-    return download_repos(urls_to_query)   
+    urls_to_query = get_urls(mirror, repos, arch)
+    download_repos(urls_to_query)
+    return [f"{repo}.db" for repo in repos]
     
 def get_repo_packages(repo_files: list[str]) -> dict:
     new_packages: dict = {}
@@ -207,7 +206,7 @@ def construct_html(text: str, new_available: list[tuple[str, str, str]]) -> str:
         return f"<html><body><h3>{text}</h3></body></html>"
     html_body = (
         "<html>"
-        "<style>table,th,td{{border-collapse: collapse;border: 1px solid black;}}</style>"
+        "<style>table,th,td{border-collapse: collapse;border: 1px solid black;}</style>"
         "<body>"
         f"<h3>{text}</h3>"
         "<table>"

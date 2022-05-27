@@ -2,6 +2,7 @@ from pytest import MonkeyPatch
 from email.message import EmailMessage
 
 from src.update_monitor import (
+    download_repos,
     get_current_packages,
     get_new_available,
     get_repo_list,
@@ -12,6 +13,7 @@ from src.update_monitor import (
     VersionFilters,
     NoUrlFound,
     send_notification,
+    update_repos,
 )
 
 import json
@@ -247,5 +249,58 @@ def test_get_urls_fresh(monkeypatch: MonkeyPatch):
     actual = get_urls(mirror, repos, arch)
     assert actual == []
 
-def test_download_repos():
-    pass
+def test_download_repos(monkeypatch: MonkeyPatch):
+    urls = [
+        "https://example.com/abcd.db",
+        "https://example.com/efgh.db"
+    ]
+    class UrlDummy:
+        def __init__(self, url: str):
+            assert url == urls[0] or url == urls[1]
+            self.url = url
+            self.length = 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def read(self, _):
+            url = self.url
+            self.url = ""
+            return url
+
+    class FileDummy:
+        def __init__(self, path: str, mode: str):
+            assert mode == "wb"
+            assert path == "./abcd.db" or path == "./efgh.db"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def write(self, data):
+            assert data == urls[0] or data == urls[1]
+
+    monkeypatch.setattr("urllib.request.urlopen", UrlDummy)
+    monkeypatch.setattr("builtins.open", FileDummy)
+    monkeypatch.setattr("builtins.print", lambda *_, **__: None)
+    monkeypatch.setattr("src.update_monitor.progress_bar", lambda *_, **__: None)
+    monkeypatch.setattr("src.update_monitor.SCRIPT_DIR", ".")
+    download_repos(urls)
+
+def test_update_repos(monkeypatch: MonkeyPatch):
+    repos = [
+        "abcd",
+        "efgh"
+    ]
+    monkeypatch.setattr("src.update_monitor.get_repo_list", lambda: repos)
+    monkeypatch.setattr("src.update_monitor.get_mirror", lambda: None)
+    monkeypatch.setattr("src.update_monitor.get_urls", lambda *_: None)
+    monkeypatch.setattr("src.update_monitor.download_repos", lambda _: None)
+    expected = ["abcd.db", "efgh.db"]
+    actual = update_repos()
+    assert actual == expected
