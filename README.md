@@ -6,5 +6,5 @@ Enables Pacman update monitoring via standalone script with no external dependen
 * (Optional) If there is no `/etc/pacman.d/mirrorlist` file you can create a `mirror.txt` file in the script directory specifying the prefered repository mirror (probably will be changed at some point)
 * Use some task scheduler like Cron to automatically run the `update_monitor.py` script (i'd recommend once a day)
 
-## Known bugs:
+## Known bugs
 * Manually installed newer versions (via `pacman -U`) aren't detected properly if the version in question is not indexed in official mirrors.
